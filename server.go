@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"log"
 	"net/http"
+	"strings"
 )
 
 type location struct {
@@ -26,11 +28,47 @@ type scooterUpdate struct {
 	Location     *location `json:"location"`
 }
 
+type user struct {
+	Id string `json:"id"`
+	Name string `json:"name"`
+	Reservation *string `json:"reservation"`
+}
+
 var defaultScooters = []scooter{
 	{Id: "abc123", Reserved: false, BatteryLevel: 99, Location: location{Latitude: 49.26227, Longitude: -123.14242}},
 	{Id: "def456", Reserved: false, BatteryLevel: 88, Location: location{Latitude: 49.26636, Longitude: -123.14226}},
 	{Id: "ghi789", Reserved: true, BatteryLevel: 77, Location: location{Latitude: 49.26532, Longitude: -123.13659}},
 	{Id: "jkl012", Reserved: false, BatteryLevel: 9, Location: location{Latitude: 49.26443, Longitude: -123.13469}},
+}
+
+var defaultUsers = map[string]user{
+	"a1": {Id: "a1", Name: "pay2go", Reservation: nil},
+	"b2": {Id: "b2", Name: "basic", Reservation: nil},
+	"c3": {Id: "c3", Name: "premium", Reservation: nil},
+}
+
+func doAuthStuff(header *http.Header) (user, error) {
+	auth := header.Get("Authorization")
+	if auth == "" {
+		return user{}, errors.New("no authorization provided")
+	}
+
+	// assuming Basic auth
+	bytes, err := base64.StdEncoding.DecodeString(auth[6:])
+	if err != nil {
+		return user{}, nil
+	}
+
+	authStr := string(bytes)
+	splits := strings.Split(authStr, ":")
+	username := splits[0]
+	for _, candidate := range defaultUsers {
+		if candidate.Name == username {
+			return candidate, nil
+		}
+	}
+
+	return user{}, errors.New("unknown user")
 }
 
 func checkLocation(loc location) error {
@@ -56,7 +94,12 @@ func checkLocation(loc location) error {
 }
 
 func getScootersHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	_, err := doAuthStuff(&r.Header)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
 	w.WriteHeader(http.StatusCreated)
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "    ")
@@ -64,6 +107,11 @@ func getScootersHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func getScooterHandler(w http.ResponseWriter, r *http.Request) {
+	_, err := doAuthStuff(&r.Header)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
 	id := r.PathValue("id")
 
 	var scoot *scooter = nil
@@ -87,6 +135,11 @@ func getScooterHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func patchScooterHandler(w http.ResponseWriter, r *http.Request) {
+	_, err := doAuthStuff(&r.Header)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
 	id := r.PathValue("id")
 
 	index := -1
@@ -146,7 +199,7 @@ func patchScooterHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	http.HandleFunc("GET /scooter/{$}", getScootersHandler)
+	http.HandleFunc("GET /scooter", getScootersHandler)
 	http.HandleFunc("GET /scooter/{id}", getScooterHandler)
 	http.HandleFunc("POST /scooter/{id}", patchScooterHandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
