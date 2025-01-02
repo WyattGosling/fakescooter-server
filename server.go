@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -29,8 +30,8 @@ type scooterUpdate struct {
 }
 
 type user struct {
-	Id string `json:"id"`
-	Name string `json:"name"`
+	Id          string  `json:"id"`
+	Name        string  `json:"name"`
 	Reservation *string `json:"reservation"`
 }
 
@@ -135,7 +136,7 @@ func getScooterHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func patchScooterHandler(w http.ResponseWriter, r *http.Request) {
-	_, err := doAuthStuff(&r.Header)
+	user, err := doAuthStuff(&r.Header)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
@@ -178,7 +179,36 @@ func patchScooterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if desiredValues.Reserved != nil {
-		defaultScooters[index].Reserved = *desiredValues.Reserved
+		if *desiredValues.Reserved {
+			// trying to reserve
+			if user.Reservation != nil {
+				http.Error(
+					w,
+					fmt.Sprintf("user %s already has a scooter reserved", user.Name),
+					http.StatusBadRequest,
+				)
+				return
+			}
+
+			if defaultScooters[index].Reserved {
+				http.Error(w, "scooter is already reserved", http.StatusBadRequest)
+				return
+			}
+
+			defaultScooters[index].Reserved = true
+			user.Reservation = &defaultScooters[index].Id
+			defaultUsers[user.Id] = user
+		} else {
+			// trying to release
+			if user.Reservation == nil || *user.Reservation != defaultScooters[index].Id {
+				http.Error(w, "user does not own reservation", http.StatusBadRequest)
+				return
+			}
+
+			defaultScooters[index].Reserved = false
+			user.Reservation = nil
+			defaultUsers[user.Id] = user
+		}
 	}
 
 	if desiredValues.Location != nil {
