@@ -231,6 +231,6 @@ func patchScooterHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	http.HandleFunc("GET /scooter", getScootersHandler)
 	http.HandleFunc("GET /scooter/{id}", getScooterHandler)
-	http.HandleFunc("POST /scooter/{id}", patchScooterHandler)
+	http.HandleFunc("PATCH /scooter/{id}", patchScooterHandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
