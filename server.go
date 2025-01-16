@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -8,7 +9,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type location struct {
@@ -46,6 +50,59 @@ var defaultUsers = map[string]user{
 	"a1": {Id: "a1", Name: "pay2go", Reservation: nil},
 	"b2": {Id: "b2", Name: "basic", Reservation: nil},
 	"c3": {Id: "c3", Name: "premium", Reservation: nil},
+}
+
+func makeDb() error {
+	os.Remove("./scooters.db")
+	db, err := sql.Open("sqlite3", "./scooters.db")
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	createStatement := `
+	create table scooters (id text not null primary key, reserved integer, battery_level integer, latitude real, longitude real);
+	delete from scooters;
+	`
+	_, err = db.Exec(createStatement)
+	if err != nil {
+		return err
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return nil
+	}
+
+	inserter, err := tx.Prepare("insert into scooters(id, reserved, battery_level, latitude, longitude) values (?, ?, ?, ?, ?)")
+	if err != nil {
+		return nil
+	}
+	defer inserter.Close()
+
+	_, err = inserter.Exec("abc123", false, 99, 49.26227, -123.14242)
+	if err != nil {
+		return err
+	}
+	_, err = inserter.Exec("def456", false, 88, 49.26636, -123.14226)
+	if err != nil {
+		return err
+	}
+	_, err = inserter.Exec("ghi789", true, 77, 49.26532, -123.13659)
+	if err != nil {
+		return err
+	}
+	_, err = inserter.Exec("jkl012", false, 9, 49.26443, -123.13469)
+	if err != nil {
+		return err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func doAuthStuff(header *http.Header) (user, error) {
@@ -229,6 +286,11 @@ func patchScooterHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	err := makeDb()
+	if err != nil {
+		log.Printf("Database setup failure: %s", err.Error())
+		return
+	}
 	http.HandleFunc("GET /scooter", getScootersHandler)
 	http.HandleFunc("GET /scooter/{id}", getScooterHandler)
 	http.HandleFunc("PATCH /scooter/{id}", patchScooterHandler)
