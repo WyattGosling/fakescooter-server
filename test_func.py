@@ -72,3 +72,34 @@ class TestServer:
         logging.warning(f'{resp.json()}')
         expected = {'id': 'abc123', 'reserved': True, 'battery': 99, 'location': {'latitude': 49.26227, 'longitude': -123.14242}}
         assert resp.json() == expected
+
+    def test_patch_scooter_battery(self, server_fixture):
+        data = json.dumps({'battery': -1})
+        resp = requests.patch('http://localhost:8080/scooter/abc123', data=data, auth=('basic', 'pass'))
+        assert resp.status_code == requests.codes.bad_request
+
+        data = json.dumps({'battery': 101})
+        resp = requests.patch('http://localhost:8080/scooter/abc123', data=data, auth=('basic', 'pass'))
+        assert resp.status_code == requests.codes.bad_request
+
+        data = json.dumps({'battery': 25})
+        resp = requests.patch('http://localhost:8080/scooter/abc123', data=data, auth=('basic', 'pass'))
+        logging.warning(f'{resp.content}')
+        assert resp.status_code == requests.codes.created
+        expected = {'id': 'abc123', 'reserved': False, 'battery': 25, 'location': {'latitude': 49.26227, 'longitude': -123.14242}}
+        assert resp.json() == expected
+
+    def test_patch_scoot_location(self, server_fixture):
+        data = json.dumps({'location': {'latitude': -181, 'longitude': -123.14242}})
+        resp = requests.patch('http://localhost:8080/scooter/abc123', data=data, auth=('basic', 'pass'))
+        assert resp.status_code == requests.codes.bad_request
+        data = json.dumps({'location': {'latitude': 49.26227, 'longitude': 700}})
+        resp = requests.patch('http://localhost:8080/scooter/abc123', data=data, auth=('basic', 'pass'))
+        assert resp.status_code == requests.codes.bad_request
+
+        data = json.dumps({'location': {'latitude': 99, 'longitude': -99}})
+        resp = requests.patch('http://localhost:8080/scooter/abc123', data=data, auth=('basic', 'pass'))
+        logging.warning(f'{resp.content}')
+        assert resp.status_code == requests.codes.created
+        expected = {'id': 'abc123', 'reserved': False, 'battery': 99, 'location': {'latitude': 99, 'longitude': -99}}
+        assert resp.json() == expected
