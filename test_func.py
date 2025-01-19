@@ -68,6 +68,7 @@ class TestServer:
         logging.warning(f'{resp.content}')
         assert resp.status_code == requests.codes.created
 
+        logging.error('#### About to do get ####')
         resp = requests.get('http://localhost:8080/scooter/abc123', auth=('basic', 'pass'))
         logging.warning(f'{resp.json()}')
         expected = {'id': 'abc123', 'reserved': True, 'battery': 99, 'location': {'latitude': 49.26227, 'longitude': -123.14242}}
