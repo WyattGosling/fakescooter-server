@@ -14,7 +14,7 @@ type Handler struct {
 }
 
 func (handle Handler) GetScootersHandler(w http.ResponseWriter, r *http.Request) {
-	_, err := doAuthStuff(&r.Header)
+	_, err := doAuthStuff(&r.Header, handle.db)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
@@ -45,7 +45,7 @@ func (handle Handler) GetScootersHandler(w http.ResponseWriter, r *http.Request)
 }
 
 func (handle Handler) GetScooterHandler(w http.ResponseWriter, r *http.Request) {
-	_, err := doAuthStuff(&r.Header)
+	_, err := doAuthStuff(&r.Header, handle.db)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
@@ -80,7 +80,7 @@ func (handle Handler) GetScooterHandler(w http.ResponseWriter, r *http.Request) 
 }
 
 func (handle Handler) PatchScooterHandler(w http.ResponseWriter, r *http.Request) {
-	user, err := doAuthStuff(&r.Header)
+	user, err := doAuthStuff(&r.Header, handle.db)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
@@ -149,6 +149,12 @@ func (handle Handler) PatchScooterHandler(w http.ResponseWriter, r *http.Request
 		http.Error(w, "something went wrong", http.StatusInternalServerError)
 		return
 	}
+	userUp, err := tx.Prepare("UPDATE users SET reservation = ? WHERE id == ?")
+	if err != nil {
+		log.Printf("Prepare: %s", err.Error())
+		http.Error(w, "something went wrong", http.StatusInternalServerError)
+		return
+	}
 
 	if desiredValues.BatteryLevel != nil {
 		newValue := *desiredValues.BatteryLevel
@@ -180,8 +186,7 @@ func (handle Handler) PatchScooterHandler(w http.ResponseWriter, r *http.Request
 			log.Printf("Setting reserved=true for %s", id)
 			reservedUp.Exec(true, id)
 			scoot.Reserved = true
-			user.Reservation = &id
-			defaultUsers[user.Id] = user
+			userUp.Exec(id, user.Id)
 		} else {
 			// trying to release
 			if user.Reservation == nil || *user.Reservation != scoot.Id {
@@ -192,8 +197,7 @@ func (handle Handler) PatchScooterHandler(w http.ResponseWriter, r *http.Request
 			log.Printf("Setting reserved=false for %s", id)
 			reservedUp.Exec(false, id)
 			scoot.Reserved = false
-			user.Reservation = nil
-			defaultUsers[user.Id] = user
+			userUp.Exec(nil, user.Id)
 		}
 	}
 

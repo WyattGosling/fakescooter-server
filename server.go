@@ -12,13 +12,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-var defaultUsers = map[string]user{
-	"a1": {Id: "a1", Name: "pay2go", Reservation: nil},
-	"b2": {Id: "b2", Name: "basic", Reservation: nil},
-	"c3": {Id: "c3", Name: "premium", Reservation: nil},
-}
-
-func doAuthStuff(header *http.Header) (user, error) {
+func doAuthStuff(header *http.Header, db *sql.DB) (user, error) {
 	auth := header.Get("Authorization")
 	if auth == "" {
 		return user{}, errors.New("no authorization provided")
@@ -33,13 +27,14 @@ func doAuthStuff(header *http.Header) (user, error) {
 	authStr := string(bytes)
 	splits := strings.Split(authStr, ":")
 	username := splits[0]
-	for _, candidate := range defaultUsers {
-		if candidate.Name == username {
-			return candidate, nil
-		}
+	foundUser := user{}
+	err = db.QueryRow("select * from users where name = ?", username).Scan(&foundUser.Id, &foundUser.Name, &foundUser.Reservation)
+	if err != nil {
+		log.Printf("doAuthStuff: %s", err.Error())
+		return user{}, errors.New("unknown user")
 	}
 
-	return user{}, errors.New("unknown user")
+	return foundUser, nil
 }
 
 func checkLocation(loc location) error {
@@ -71,11 +66,21 @@ func makeDb() (*sql.DB, error) {
 		return nil, err
 	}
 
-	createStatement := `
+	createScootersTable := `
 	create table scooters (id text not null primary key, reserved integer, battery_level integer, latitude real, longitude real);
 	delete from scooters;
 	`
-	_, err = db.Exec(createStatement)
+	createUsersTable := `
+	create table users (id text not null primary key, name text, reservation text);
+	delete from users;
+	`
+
+	_, err = db.Exec(createScootersTable)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = db.Exec(createUsersTable)
 	if err != nil {
 		return nil, err
 	}
@@ -85,25 +90,44 @@ func makeDb() (*sql.DB, error) {
 		return nil, err
 	}
 
-	inserter, err := tx.Prepare("insert into scooters(id, reserved, battery_level, latitude, longitude) values (?, ?, ?, ?, ?)")
+	scooterInserter, err := tx.Prepare("insert into scooters(id, reserved, battery_level, latitude, longitude) values (?, ?, ?, ?, ?)")
 	if err != nil {
 		return nil, err
 	}
-	defer inserter.Close()
+	defer scooterInserter.Close()
 
-	_, err = inserter.Exec("abc123", false, 99, 49.26227, -123.14242)
+	userInserter, err := tx.Prepare("insert into users(id, name, reservation) values (?, ?, ?)")
 	if err != nil {
 		return nil, err
 	}
-	_, err = inserter.Exec("def456", false, 88, 49.26636, -123.14226)
+	defer userInserter.Close()
+
+	_, err = scooterInserter.Exec("abc123", false, 99, 49.26227, -123.14242)
 	if err != nil {
 		return nil, err
 	}
-	_, err = inserter.Exec("ghi789", true, 77, 49.26532, -123.13659)
+	_, err = scooterInserter.Exec("def456", false, 88, 49.26636, -123.14226)
 	if err != nil {
 		return nil, err
 	}
-	_, err = inserter.Exec("jkl012", false, 9, 49.26443, -123.13469)
+	_, err = scooterInserter.Exec("ghi789", true, 77, 49.26532, -123.13659)
+	if err != nil {
+		return nil, err
+	}
+	_, err = scooterInserter.Exec("jkl012", false, 9, 49.26443, -123.13469)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = userInserter.Exec("a1", "pay2go", nil)
+	if err != nil {
+		return nil, err
+	}
+	_, err = userInserter.Exec("b2", "basic", nil)
+	if err != nil {
+		return nil, err
+	}
+	_, err = userInserter.Exec("c3", "premium", nil)
 	if err != nil {
 		return nil, err
 	}
