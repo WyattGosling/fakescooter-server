@@ -226,3 +226,21 @@ func (handle Handler) PatchScooterHandler(w http.ResponseWriter, r *http.Request
 	encoder.SetIndent("", "    ")
 	encoder.Encode(scoot)
 }
+
+func (handle *Handler) GetUserHandler(w http.ResponseWriter, r *http.Request) {
+	user, err := doAuthStuff(&r.Header, handle.db)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	id := r.PathValue("id")
+	if user.Name != id {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "    ")
+	encoder.Encode(user)
+}

@@ -152,5 +152,6 @@ func main() {
 	http.HandleFunc("GET /scooter", handle.GetScootersHandler)
 	http.HandleFunc("GET /scooter/{id}", handle.GetScooterHandler)
 	http.HandleFunc("PATCH /scooter/{id}", handle.PatchScooterHandler)
+	http.HandleFunc("GET /user/{id}", handle.GetUserHandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
