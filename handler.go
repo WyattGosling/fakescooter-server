@@ -20,7 +20,17 @@ func (handle Handler) GetScootersHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	rows, err := handle.db.Query("select * from scooters")
+	selectSmt := "select * from scooters"
+
+	queryParams := r.URL.Query()
+	var rows *sql.Rows
+	if queryParams.Get("user") != "" {
+		userId := queryParams.Get("user")
+		rows, err = handle.db.Query("select scoot.* from scooters scoot join users user on scoot.id = user.reservation where user.id = ?", userId)
+	} else {
+		rows, err = handle.db.Query(selectSmt)
+	}
+
 	if err != nil {
 		http.Error(w, "no matching scooter found", http.StatusNotFound)
 		return
