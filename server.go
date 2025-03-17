@@ -28,7 +28,7 @@ func doAuthStuff(header *http.Header, db *sql.DB) (user, error) {
 	splits := strings.Split(authStr, ":")
 	username := splits[0]
 	foundUser := user{}
-	err = db.QueryRow("select * from users where name = ?", username).Scan(&foundUser.Id, &foundUser.Name, &foundUser.Reservation)
+	err = db.QueryRow("select * from users where name = ?", username).Scan(&foundUser.Id, &foundUser.Name)
 	if err != nil {
 		log.Printf("doAuthStuff: %s", err.Error())
 		return user{}, errors.New("unknown user")
@@ -67,13 +67,25 @@ func makeDb() (*sql.DB, error) {
 	}
 
 	createScootersTable := `
-	create table scooters (id text not null primary key, reserved integer, battery_level integer, latitude real, longitude real);
+	create table scooters (id text not null primary key, battery_level integer, latitude real, longitude real);
 	delete from scooters;
 	`
 	createUsersTable := `
-	create table users (id text not null primary key, name text, reservation text);
+	create table users (id text not null primary key, name text);
 	delete from users;
 	`
+
+	createReservationsTable := `
+	create table reservations (
+		scooter_id text not null,
+		user_id text not null,
+		start_time integer not null,
+		end_time integer,
+		active boolean,
+		foreign key (scooter_id) references scooters(id),
+		foreign key (user_id) references users(id)
+	);
+	delete from reservations;`
 
 	_, err = db.Exec(createScootersTable)
 	if err != nil {
@@ -85,49 +97,65 @@ func makeDb() (*sql.DB, error) {
 		return nil, err
 	}
 
+	_, err = db.Exec(createReservationsTable)
+	if err != nil {
+		return nil, err
+	}
+
 	tx, err := db.Begin()
 	if err != nil {
 		return nil, err
 	}
 
-	scooterInserter, err := tx.Prepare("insert into scooters(id, reserved, battery_level, latitude, longitude) values (?, ?, ?, ?, ?)")
+	scooterInserter, err := tx.Prepare("insert into scooters(id, battery_level, latitude, longitude) values (?, ?, ?, ?)")
 	if err != nil {
 		return nil, err
 	}
 	defer scooterInserter.Close()
 
-	userInserter, err := tx.Prepare("insert into users(id, name, reservation) values (?, ?, ?)")
+	userInserter, err := tx.Prepare("insert into users(id, name) values (?, ?)")
 	if err != nil {
 		return nil, err
 	}
 	defer userInserter.Close()
 
-	_, err = scooterInserter.Exec("abc123", false, 99, 49.26227, -123.14242)
+	reservationInserter, err := tx.Prepare("insert into reservations(scooter_id, user_id, start_time, end_time, active) values (?, ?, ?, ?, ?)")
 	if err != nil {
 		return nil, err
 	}
-	_, err = scooterInserter.Exec("def456", false, 88, 49.26636, -123.14226)
+	defer reservationInserter.Close()
+
+	_, err = scooterInserter.Exec("abc123", 99, 49.26227, -123.14242)
 	if err != nil {
 		return nil, err
 	}
-	_, err = scooterInserter.Exec("ghi789", true, 77, 49.26532, -123.13659)
+	_, err = scooterInserter.Exec("def456", 88, 49.26636, -123.14226)
 	if err != nil {
 		return nil, err
 	}
-	_, err = scooterInserter.Exec("jkl012", false, 9, 49.26443, -123.13469)
+	_, err = scooterInserter.Exec("ghi789", 77, 49.26532, -123.13659)
+	if err != nil {
+		return nil, err
+	}
+	_, err = scooterInserter.Exec("jkl012", 9, 49.26443, -123.13469)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = userInserter.Exec("a1", "pay2go", nil)
+	_, err = userInserter.Exec("a1", "pay2go")
 	if err != nil {
 		return nil, err
 	}
-	_, err = userInserter.Exec("b2", "basic", nil)
+	_, err = userInserter.Exec("b2", "basic")
 	if err != nil {
 		return nil, err
 	}
-	_, err = userInserter.Exec("c3", "premium", nil)
+	_, err = userInserter.Exec("c3", "premium")
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = reservationInserter.Exec("ghi789", "c3", 1742182920, nil, true)
 	if err != nil {
 		return nil, err
 	}
