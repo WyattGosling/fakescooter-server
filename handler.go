@@ -33,10 +33,10 @@ func (handle Handler) GetScootersHandler(w http.ResponseWriter, r *http.Request)
 		w.WriteHeader(http.StatusOK)
 		encoder := json.NewEncoder(w)
 		encoder.SetIndent("", "    ")
-		encoder.Encode([1]scooterApi{scoot})
+		encoder.Encode([1]scooterOut{scoot})
 		return
 	} else {
-		selectSmt := "select scoot.*, reso.active from scooters scoot left join reservations reso on reso.scooter_id = scoot.id;"
+		selectSmt := "select scoot.*, reso.active, reso.start_time from scooters scoot left join reservations reso on reso.scooter_id = scoot.id;"
 		rows, err = handle.db.Query(selectSmt)
 
 		if err != nil {
@@ -45,19 +45,20 @@ func (handle Handler) GetScootersHandler(w http.ResponseWriter, r *http.Request)
 		}
 		defer rows.Close()
 	
-		var scoots []scooterApi
+		var scoots []scooterOut
 		for rows.Next() {
-			var reserved sql.NullBool
-			var scoot scooterApi
-			scoot.Id.Defined = true
-			scoot.BatteryLevel.Defined = true
-			scoot.Location.Defined = true
-			err = rows.Scan(&scoot.Id.Value, &scoot.BatteryLevel.Value, &scoot.Location.Value.Latitude, &scoot.Location.Value.Longitude, &reserved)
+			var scoot scooterOut
+			var reso reservation
+			err = rows.Scan(&scoot.Id, &scoot.BatteryLevel, &scoot.Location.Latitude, &scoot.Location.Longitude, &reso.Active, &reso.StartTime)
 			if err != nil {
+				log.Printf("Scan Error: %s", err.Error())
 				http.Error(w, "", http.StatusInternalServerError)
 				return
 			}
-			scoot.Reserved = Optional[bool]{Defined: true, Value: reserved.Bool}
+			if reso.Active.Valid {
+				scoot.Reservation.Active = reso.Active.Bool
+				scoot.Reservation.StartTime = reso.StartTime.Int64
+			}
 			scoots = append(scoots, scoot)
 		}
 	
@@ -68,22 +69,20 @@ func (handle Handler) GetScootersHandler(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-func getScooterByUser(userId string, db *sql.DB) (scooterApi, error) {
-	var s scooterApi
+func getScooterByUser(userId string, db *sql.DB) (scooterOut, error) {
+	var s scooterOut
+	var r reservationApi
 	query := `
-		select scoot.*
+		select scoot.*, reso.active, reso.start_time
 		from scooters scoot
 		join reservations reso on scoot.id = reso.scooter_id
 		where reso.user_id = ?
 	`
-	err := db.QueryRow(query, userId).Scan(&s.Id.Value, &s.BatteryLevel.Value, &s.Location.Value.Latitude, &s.Location.Value.Longitude)
+	err := db.QueryRow(query, userId).Scan(&s.Id, &s.BatteryLevel, &s.Location.Latitude, &s.Location.Longitude, &r.Active, &r.StartTime)
 	if err != nil {
-		return scooterApi{}, err
+		return scooterOut{}, err
 	}
-	s.Id.Defined = true
-	s.BatteryLevel.Defined = true
-	s.Location.Defined = true
-	s.Reserved = Optional[bool]{Defined: true, Value: true}
+	s.Reservation = r
 	return s, nil
 }
 
@@ -95,9 +94,9 @@ func (handle Handler) GetScooterHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	id := r.PathValue("id")
 
-	var reserved sql.NullBool
-	var scoot scooterApi
-	err = handle.db.QueryRow("select scoot.*, reso.active from scooters scoot left join reservations reso on reso.scooter_id = scoot.id where id=?", id).Scan(&scoot.Id.Value, &scoot.BatteryLevel.Value, &scoot.Location.Value.Latitude, &scoot.Location.Value.Longitude, &reserved)
+	var scoot scooterOut
+	var reso reservation
+	err = handle.db.QueryRow("select scoot.*, reso.active, reso.start_time from scooters scoot left join reservations reso on reso.scooter_id = scoot.id where id=?", id).Scan(&scoot.Id, &scoot.BatteryLevel, &scoot.Location.Latitude, &scoot.Location.Longitude, &reso.Active, &reso.StartTime)
 	if err == sql.ErrNoRows {
 		http.Error(w, "No matching scooter found", http.StatusNotFound)
 		return
@@ -105,11 +104,10 @@ func (handle Handler) GetScooterHandler(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "something went wrong", http.StatusInternalServerError)
 		return
 	}
-
-	scoot.Id.Defined = true
-	scoot.BatteryLevel.Defined = true
-	scoot.Location.Defined = true
-	scoot.Reserved = Optional[bool]{Defined: true, Value: reserved.Bool}
+	if reso.Active.Valid {
+		scoot.Reservation.Active = reso.Active.Bool
+		scoot.Reservation.StartTime = reso.StartTime.Int64
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -140,7 +138,7 @@ func (handle Handler) PatchScooterHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	scoot := scooter{
+	inScoot := scooter{
 		Id: id,
 		BatteryLevel: batteryLevel,
 		Location: location{Latitude: latitude, Longitude: longitude},
@@ -152,7 +150,7 @@ func (handle Handler) PatchScooterHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var desiredValues scooterApi
+	var desiredValues scooterIn
 	err = json.Unmarshal(body, &desiredValues)
 	if err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -202,7 +200,7 @@ func (handle Handler) PatchScooterHandler(w http.ResponseWriter, r *http.Request
 			return
 		}
 		batteryUp.Exec(newValue, id)
-		scoot.BatteryLevel = newValue
+		inScoot.BatteryLevel = newValue
 	}
 
 	if desiredValues.Reserved.Defined {
@@ -246,7 +244,7 @@ func (handle Handler) PatchScooterHandler(w http.ResponseWriter, r *http.Request
 
 		latitudeUp.Exec(desiredValues.Location.Value.Latitude, id)
 		longitudeUp.Exec("longitude", desiredValues.Location.Value.Longitude, id)
-		scoot.Location = desiredValues.Location.Value
+		inScoot.Location = desiredValues.Location.Value
 	}
 
 	log.Printf("Committing")
@@ -256,14 +254,15 @@ func (handle Handler) PatchScooterHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	outScoot := scooterApi{
-		Id: Optional[string]{Defined: true, Value: scoot.Id},
-		BatteryLevel: Optional[int]{Defined: true, Value: scoot.BatteryLevel},
-		Location: Optional[location]{Defined: true, Value: scoot.Location},
+	outScoot := scooterOut{
+		Id: inScoot.Id,
+		BatteryLevel: inScoot.BatteryLevel,
+		Location: inScoot.Location,
 	}
-	if desiredValues.Reserved.Defined {
-		outScoot.Reserved = Optional[bool]{Defined: true, Value: desiredValues.Reserved.Value}
-	}
+
+	var reservation reservationApi
+	handle.db.QueryRow("select active, start_time from reservations where scooter_id=? and active=1", id).Scan(&reservation.Active, &reservation.StartTime)
+	outScoot.Reservation = reservation
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

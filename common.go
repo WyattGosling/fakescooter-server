@@ -1,6 +1,9 @@
 package main
 
-import "encoding/json"
+import (
+	"database/sql"
+	"encoding/json"
+)
 
 // convention: structs with a Api suffix are used for JSON encoding/decoding
 // and structs without are used for internal logic
@@ -38,17 +41,34 @@ type location struct {
 	Longitude float64 `json:"longitude"` // East/West
 }
 
+type reservation struct {
+	Active    sql.NullBool
+	StartTime sql.NullInt64
+}
+
+type reservationApi struct {
+	Active    bool  `json:"active"`
+	StartTime int64 `json:"start_time,omitempty"`
+}
+
 type scooter struct {
 	Id           string
 	BatteryLevel int
 	Location     location
 }
 
-type scooterApi struct {
-	Id		     Optional[string]   `json:"id,omitempty"`
-	Reserved     Optional[bool]     `json:"reserved,omitempty"`
+type scooterIn struct {
+	Id           Optional[string]   `json:"id,omitempty"`
+	Reserved     Optional[bool]     `json:"reserved"`
 	BatteryLevel Optional[int]      `json:"battery,omitempty"`
 	Location     Optional[location] `json:"location,omitempty"`
+}
+
+type scooterOut struct {
+	Id           string         `json:"id,omitempty"`
+	Reservation  reservationApi `json:"reservation"`
+	BatteryLevel int            `json:"battery,omitempty"`
+	Location     location       `json:"location,omitempty"`
 }
 
 type user struct {
