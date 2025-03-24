@@ -71,7 +71,7 @@ func (handle Handler) GetScootersHandler(w http.ResponseWriter, r *http.Request)
 
 func getScooterByUser(userId string, db *sql.DB) (scooterOut, error) {
 	var s scooterOut
-	var r reservationApi
+	var r reservationOut
 	query := `
 		select scoot.*, reso.active, reso.start_time
 		from scooters scoot
@@ -260,7 +260,7 @@ func (handle Handler) PatchScooterHandler(w http.ResponseWriter, r *http.Request
 		Location: inScoot.Location,
 	}
 
-	var reservation reservationApi
+	var reservation reservationOut
 	handle.db.QueryRow("select active, start_time from reservations where scooter_id=? and active=1", id).Scan(&reservation.Active, &reservation.StartTime)
 	outScoot.Reservation = reservation
 
@@ -284,7 +284,7 @@ func (handle *Handler) GetUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	outUser := userApi{
+	outUser := userOut{
 		Id: Optional[string]{Defined: true, Value: user.Id},
 		Name: Optional[string]{Defined: true, Value: user.Name},
 	}

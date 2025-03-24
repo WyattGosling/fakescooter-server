@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 )
 
-// convention: structs with a Api suffix are used for JSON encoding/decoding
-// and structs without are used for internal logic
+// convention:
+// struct with In suffix is for handling incoming data
+//       - fields are optional to allow users to only send the data they want to update
+// struct with Out suffix is for returning data
+// struct with no suffix is for internal use
 
 type Optional[T any] struct {
 	Defined bool
@@ -46,7 +49,7 @@ type reservation struct {
 	StartTime sql.NullInt64
 }
 
-type reservationApi struct {
+type reservationOut struct {
 	Active    bool  `json:"active"`
 	StartTime int64 `json:"start_time,omitempty"`
 }
@@ -66,7 +69,7 @@ type scooterIn struct {
 
 type scooterOut struct {
 	Id           string         `json:"id,omitempty"`
-	Reservation  reservationApi `json:"reservation"`
+	Reservation  reservationOut `json:"reservation"`
 	BatteryLevel int            `json:"battery,omitempty"`
 	Location     location       `json:"location,omitempty"`
 }
@@ -76,7 +79,7 @@ type user struct {
 	Name string
 }
 
-type userApi struct {
+type userOut struct {
 	Id   Optional[string] `json:"id,omitempty"`
 	Name Optional[string] `json:"name,omitempty"`
 }
