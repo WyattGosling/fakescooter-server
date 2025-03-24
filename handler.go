@@ -131,7 +131,7 @@ func (handle Handler) PatchScooterHandler(w http.ResponseWriter, r *http.Request
 	var longitude float64
 	var reserved sql.NullBool
 	var user_id sql.NullString
-	err = handle.db.QueryRow("select scoot.*, reso.active, reso.user_id from scooters scoot left join reservations reso on reso.scooter_id = scoot.id where id=?", id).Scan(&id, &batteryLevel, &latitude, &longitude, &reserved, &user_id)
+	err = handle.db.QueryRow("select scoot.*, reso.active, reso.user_id from scooters scoot left join reservations reso on reso.scooter_id = scoot.id and reso.active = true where id=?", id).Scan(&id, &batteryLevel, &latitude, &longitude, &reserved, &user_id)
 	if err == sql.ErrNoRows {
 		http.Error(w, "No matching scooter found", http.StatusNotFound)
 		return
