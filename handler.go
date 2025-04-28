@@ -221,9 +221,6 @@ func (handle Handler) PatchScooterHandler(w http.ResponseWriter, r *http.Request
 
 			log.Printf("Reserving scooter %s for %s", id, user.Id)
 			now := time.Now().UTC().Unix()
-			var foor = time.Now().UTC()
-			log.Printf("Current time: %v", foor)
-			log.Printf("Current time in seconds: %v", foor.Unix())
 			reservationCreate.Exec(id, user.Id, now)
 		} else {
 			// trying to release
