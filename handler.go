@@ -29,6 +29,10 @@ func (handle Handler) GetScootersHandler(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "no matching scooter found", http.StatusNotFound)
 			return
 		}
+		if !scoot.Reservation.Active {
+			http.Error(w, "no matching scooter found", http.StatusNotFound)
+			return
+		}
 
 		w.WriteHeader(http.StatusOK)
 		encoder := json.NewEncoder(w)
@@ -217,6 +221,9 @@ func (handle Handler) PatchScooterHandler(w http.ResponseWriter, r *http.Request
 
 			log.Printf("Reserving scooter %s for %s", id, user.Id)
 			now := time.Now().UTC().Unix()
+			var foor = time.Now().UTC()
+			log.Printf("Current time: %v", foor)
+			log.Printf("Current time in seconds: %v", foor.Unix())
 			reservationCreate.Exec(id, user.Id, now)
 		} else {
 			// trying to release
