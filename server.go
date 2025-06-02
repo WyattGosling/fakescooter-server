@@ -2,12 +2,12 @@ package main
 
 import (
 	"database/sql"
-	"encoding/base64"
 	"errors"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -18,19 +18,46 @@ func doAuthStuff(header *http.Header, db *sql.DB) (user, error) {
 		return user{}, errors.New("no authorization provided")
 	}
 
-	// assuming Basic auth
-	bytes, err := base64.StdEncoding.DecodeString(auth[6:])
-	if err != nil {
-		return user{}, nil
+	// Auth uses Bearer token format
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return user{}, errors.New("invalid authorization format, expected 'Bearer <token>'")
 	}
 
-	authStr := string(bytes)
-	splits := strings.Split(authStr, ":")
-	username := splits[0]
-	foundUser := user{}
-	err = db.QueryRow("select * from users where name = ?", username).Scan(&foundUser.Id, &foundUser.Name)
+	token := strings.TrimPrefix(auth, "Bearer ")
+
+	var userId string
+	var expiresAt int64
+	err := db.QueryRow("select user_id, expires_at from tokens where token = ?", token).Scan(&userId, &expiresAt)
+	if err == sql.ErrNoRows {
+		return user{}, errors.New("invalid authorization token")
+	} else if err != nil {
+		log.Printf("doAuthStuff: error looking up token: %s", err.Error())
+		return user{}, errors.New("internal server error")
+	}
+
+	now := time.Now().Unix()
+	if expiresAt < now {
+		return user{}, errors.New("authorization token has expired")
+	}
+
+	expiryUpdater, err := db.Prepare("update tokens set expires_at = ? where token = ?")
 	if err != nil {
-		log.Printf("doAuthStuff: %s", err.Error())
+		log.Printf("doAuthStuff: error making prepard statement: %s", err.Error())
+		return user{}, errors.New("internal server error")
+	}
+	defer expiryUpdater.Close()
+
+	expiresAt = now + 3600
+	_, err = expiryUpdater.Exec(expiresAt, token)
+	if err != nil {
+		log.Printf("doAuthStuff: error updating token expiry: %s", err.Error())
+		return user{}, errors.New("internal server error")
+	}
+
+	foundUser := user{}
+	_, err = db.Query("select id, name from users where id = ?", userId)
+	if err != nil {
+		log.Printf("doAuthStuff: error looking up user %s: %s", userId, err.Error())
 		return user{}, errors.New("unknown user")
 	}
 
@@ -71,9 +98,18 @@ func makeDb() (*sql.DB, error) {
 	delete from scooters;
 	`
 	createUsersTable := `
-	create table users (id text not null primary key, name text);
+	create table users (id text not null primary key, name text, password text);
 	delete from users;
 	`
+
+	createTokensTable := `
+	create table tokens (
+		user_id text not null,
+		token text not null,
+		expires_at integer not null,
+		foreign key (user_id) references users(id)
+	);
+	delete from tokens;`
 
 	createReservationsTable := `
 	create table reservations (
@@ -97,6 +133,11 @@ func makeDb() (*sql.DB, error) {
 		return nil, err
 	}
 
+	_, err = db.Exec(createTokensTable)
+	if err != nil {
+		return nil, err
+	}
+
 	_, err = db.Exec(createReservationsTable)
 	if err != nil {
 		return nil, err
@@ -113,7 +154,7 @@ func makeDb() (*sql.DB, error) {
 	}
 	defer scooterInserter.Close()
 
-	userInserter, err := tx.Prepare("insert into users(id, name) values (?, ?)")
+	userInserter, err := tx.Prepare("insert into users(id, name, password) values (?, ?, ?)")
 	if err != nil {
 		return nil, err
 	}
@@ -142,15 +183,15 @@ func makeDb() (*sql.DB, error) {
 		return nil, err
 	}
 
-	_, err = userInserter.Exec("a1", "pay2go")
+	_, err = userInserter.Exec("a1", "pay2go", "password")
 	if err != nil {
 		return nil, err
 	}
-	_, err = userInserter.Exec("b2", "basic")
+	_, err = userInserter.Exec("b2", "basic", "password")
 	if err != nil {
 		return nil, err
 	}
-	_, err = userInserter.Exec("c3", "premium")
+	_, err = userInserter.Exec("c3", "premium", "password")
 	if err != nil {
 		return nil, err
 	}
@@ -177,6 +218,7 @@ func main() {
 	defer db.Close()
 
 	handle := Handler{db: db}
+	http.HandleFunc("GET /login", handle.LoginHandler)
 	http.HandleFunc("GET /scooter", handle.GetScootersHandler)
 	http.HandleFunc("GET /scooter/{id}", handle.GetScooterHandler)
 	http.HandleFunc("PATCH /scooter/{id}", handle.PatchScooterHandler)

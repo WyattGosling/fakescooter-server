@@ -2,16 +2,61 @@ package main
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 )
 
 type Handler struct {
 	db *sql.DB
+}
+
+func (handle Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
+	auth := r.Header.Get("Authorization")
+	if auth == "" {
+		http.Error(w, "no authorization provided", http.StatusUnauthorized)
+		return
+	}
+
+	// assuming Basic auth
+	bytes, err := base64.StdEncoding.DecodeString(auth[6:])
+	if err != nil {
+		http.Error(w, "invalid authorization format", http.StatusUnauthorized)
+		return
+	}
+
+	authStr := string(bytes)
+	log.Printf("Auth string: %s", authStr)
+	splits := strings.Split(authStr, ":")
+	username := splits[0]
+	password := splits[1]
+
+	var user user
+	err = handle.db.QueryRow("select id, name from users where name = ? and password = ?", username, password).Scan(&user.Id, &user.Name)
+	if err != nil {
+		log.Printf("Login Error: %s", err.Error())
+		http.Error(w, "invalid username or password", http.StatusUnauthorized)
+		return
+	}
+	log.Printf("User %s logged in", user.Name)
+
+	token := generateRandomString(32, 64)
+	expiresAt := time.Now().Add(time.Hour).Unix()
+	_, err = handle.db.Exec("insert into tokens (user_id, token, expires_at) values (?, ?, ?)", user.Id, token, expiresAt)
+	if err != nil {
+		log.Printf("Error inserting token: %s", err.Error())
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Authorization", "Bearer " + token)
+	w.WriteHeader(http.StatusOK)
 }
 
 func (handle Handler) GetScootersHandler(w http.ResponseWriter, r *http.Request) {
@@ -298,4 +343,16 @@ func (handle *Handler) GetUserHandler(w http.ResponseWriter, r *http.Request) {
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "    ")
 	encoder.Encode(outUser)
+}
+
+
+const asciiChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+func generateRandomString(minLen, maxLen int) string {
+	length := rand.Intn(maxLen-minLen+1) + minLen
+	bytes := make([]byte, length)
+	for i := range bytes {
+		bytes[i] = asciiChars[rand.Intn(len(asciiChars))]
+	}
+	return string(bytes)
 }
